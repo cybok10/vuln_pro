@@ -24,9 +24,6 @@ export enum ScanStatus {
 
 export type ToolCategory = 'recon' | 'web' | 'network' | 'cloud' | 'fuzzing';
 
-/**
- * Log entry for the live terminal
- */
 export interface LogEntry {
   id: string | number;
   timestamp: string;
@@ -35,9 +32,6 @@ export interface LogEntry {
   message: string;
 }
 
-/**
- * Mandatory Result Schema for all plugins
- */
 export interface Finding {
   id: string;
   scan_id: string;
@@ -52,19 +46,28 @@ export interface Finding {
   evidence?: string;
   confidence: Confidence;
   timestamp: string;
-}
-
-export interface EventMessage {
-  type: 'log' | 'finding' | 'status_change';
-  payload: any;
-  timestamp: string;
+  status: 'open' | 'resolved' | 'risk_accepted';
 }
 
 export interface ScanSession {
   id: string;
+  name: string;
   target: string;
   status: ScanStatus;
   progress: number;
   start_time: string;
   findings_count: number;
+  config: {
+    nmapProfile: string;
+    portRange: string;
+    intensity: 'Stealth' | 'Balanced' | 'Aggressive';
+  };
+}
+
+export interface SystemHealth {
+  cpu_usage: number;
+  mem_usage: number;
+  workers_active: number;
+  db_status: 'online' | 'offline';
+  throughput: number;
 }
