@@ -41,7 +41,9 @@ import {
   Scan,
   Server,
   FlaskConical,
-  Target
+  Target,
+  ChevronDown,
+  Hash
 } from 'lucide-react';
 import { 
   Severity, 
@@ -75,10 +77,23 @@ const TOOLS: { name: string; icon: React.ReactNode; desc: string; category: Tool
   { name: 'Checkov', icon: <ShieldCheck size={16} />, desc: 'IaC Security Scanning', category: 'cloud' },
 ];
 
+type NmapProfile = 'Standard' | 'Aggressive' | 'Vuln-Audit' | 'Stealth';
+
+const NMAP_PROFILES: Record<NmapProfile, { flags: string; desc: string }> = {
+  'Standard': { flags: '-sV -sC', desc: 'Default version detection and basic scripts.' },
+  'Aggressive': { flags: '-A -T4', desc: 'Enable OS detection, version detection, script scanning, and traceroute.' },
+  'Vuln-Audit': { flags: '-sV --script vuln', desc: 'Exhaustive check for known CVEs across all open ports.' },
+  'Stealth': { flags: '-sS -Pn -T2', desc: 'Avoid IDS/IPS detection with slow SYN timing and no-ping mode.' }
+};
+
 const App: React.FC = () => {
+  const [targetInput, setTargetInput] = useState('hq.enterprise-defense.com');
+  const [nmapProfile, setNmapProfile] = useState<NmapProfile>('Aggressive');
+  const [portRange, setPortRange] = useState('1-1000');
+  
   const [session, setSession] = useState<ScanSession>({
     id: 'ENT-' + Math.random().toString(36).substr(2, 6).toUpperCase(),
-    target: 'hq.enterprise-defense.com',
+    target: targetInput,
     status: ScanStatus.IDLE,
     progress: 0,
     start_time: '',
@@ -120,6 +135,7 @@ const App: React.FC = () => {
     setSession(s => ({ 
       ...s, 
       status: ScanStatus.RUNNING, 
+      target: targetInput,
       start_time: new Date().toISOString(),
       progress: 0,
       findings_count: 0
@@ -135,77 +151,48 @@ const App: React.FC = () => {
       setSession(s => ({ ...s, progress: currentProgress }));
 
       // PHASE 1: INTELLIGENCE & RECON (0-25%)
-      if (step === 2) simulateEvent('log', { plugin: 'core', message: 'Mission Context Initialized. Target Scope: hq.enterprise-defense.com', level: 'info' });
+      if (step === 2) simulateEvent('log', { plugin: 'core', message: `Mission Context Initialized. Target Scope: ${targetInput}`, level: 'info' });
       if (step === 5) simulateEvent('log', { plugin: 'recon', message: 'Subfinder: Active subdomain enumeration via passive datasets...', level: 'info' });
       if (step === 8) simulateEvent('log', { plugin: 'recon', message: 'Amass: Correlating DNS records with WHOIS data...', level: 'info' });
       if (step === 10) {
         simulateEvent('finding', { 
           tool: 'Amass', category: 'recon', severity: Severity.INFO, 
           title: 'Unlisted Staging Subdomain Found', 
-          description: 'Discovered dev-staging.enterprise-defense.com via cert transparency logs.',
-          confidence: Confidence.HIGH, target: 'dev-staging.enterprise-defense.com'
+          description: `Discovered dev-staging.${targetInput} via cert transparency logs.`,
+          confidence: Confidence.HIGH, target: `dev-staging.${targetInput}`
         });
       }
       if (step === 15) simulateEvent('log', { plugin: 'recon', message: 'Gitleaks: Checking GitHub/GitLab for leaked .env files...', level: 'info' });
-      if (step === 20) {
-        simulateEvent('finding', { 
-          tool: 'Gitleaks', category: 'recon', severity: Severity.CRITICAL, 
-          title: 'Hardcoded SSH Private Key', 
-          description: 'A build script on public-facing CDN leaked an RSA private key for the dev jumpbox.',
-          confidence: Confidence.HIGH, target: 'cdn.enterprise-defense.com'
-        });
-      }
-
+      
       // PHASE 2: ATTACK SURFACE ENUMERATION (25-50%)
       if (step === 25) simulateEvent('log', { plugin: 'network', message: 'Masscan: SYN Scanning 65535 ports at 50,000 pps...', level: 'info' });
-      if (step === 30) simulateEvent('log', { plugin: 'network', message: 'Nmap: Detected Open Ports: 22, 80, 443, 3306, 5432, 8080.', level: 'success' });
-      if (step === 35) simulateEvent('log', { plugin: 'network', message: 'Nmap-NSE: Executing default vulnerability scripts (http-enum, ssl-cert)...', level: 'info' });
-      if (step === 38) {
+      if (step === 30) {
+        const portInfo = (nmapProfile === 'Standard' || nmapProfile === 'Aggressive') ? 'Default Range' : `Port Range: ${portRange}`;
+        simulateEvent('log', { plugin: 'network', message: `Nmap: Commencing [${nmapProfile}] profile scan. ${portInfo}. Flags: ${NMAP_PROFILES[nmapProfile].flags}`, level: 'info' });
+      }
+      if (step === 35) simulateEvent('log', { plugin: 'network', message: 'Nmap: Detected Open Ports: 22, 80, 443, 3306, 8080.', level: 'success' });
+      
+      if (step === 38 && nmapProfile !== 'Stealth') {
         simulateEvent('finding', { 
           tool: 'Nmap-NSE', category: 'network', severity: Severity.HIGH, 
           title: 'Unencrypted MySQL Protocol', 
           description: 'Port 3306 is open to external traffic and accepting connections without TLS forcing.',
-          confidence: Confidence.HIGH, target: 'db-master.internal.lan'
+          confidence: Confidence.HIGH, target: `db-master.${targetInput}`
         });
       }
 
       // PHASE 3: ACTIVE EXPLOITATION RESEARCH (50-75%)
-      if (step === 50) simulateEvent('log', { plugin: 'web', message: 'Nikto: Identified legacy Telerik UI library on /admin endpoint.', level: 'warning' });
+      if (step === 50) simulateEvent('log', { plugin: 'web', message: 'Nikto: Identified legacy IIS configuration on /admin endpoint.', level: 'warning' });
       if (step === 55) simulateEvent('log', { plugin: 'fuzzing', message: 'Sqlmap: Testing blind injection on search parameters...', level: 'info' });
-      if (step === 60) {
-        simulateEvent('finding', { 
-          tool: 'Sqlmap', category: 'fuzzing', severity: Severity.CRITICAL, 
-          title: 'Second-Order SQL Injection', 
-          description: 'Vulnerability in user profile update allows arbitrary DB queries via username field.',
-          confidence: Confidence.HIGH, target: 'auth.enterprise-defense.com'
-        });
-      }
       if (step === 65) simulateEvent('log', { plugin: 'web', message: 'Nuclei: Running 2024 CVE Template Library...', level: 'info' });
-      if (step === 70) {
-        simulateEvent('finding', { 
-          tool: 'Nuclei', category: 'web', severity: Severity.HIGH, 
-          title: 'CVE-2024-21887: Ivanti Connect Secure RCE', 
-          description: 'Detected vulnerable VPN appliance endpoint allowing command injection.',
-          confidence: Confidence.MEDIUM, target: 'vpn.enterprise-defense.com'
-        });
-      }
 
       // PHASE 4: CLOUD & POST-EXPLOITATION (75-100%)
-      if (step === 80) simulateEvent('log', { plugin: 'cloud', message: 'Checkov: Analyzing Terraform state files found on exposed S3 bucket.', level: 'info' });
       if (step === 85) simulateEvent('log', { plugin: 'cloud', message: 'Kube-Hunter: Mapping Kubernetes cluster internal networking...', level: 'info' });
-      if (step === 90) {
-        simulateEvent('finding', { 
-          tool: 'Kube-Hunter', category: 'cloud', severity: Severity.HIGH, 
-          title: 'Privileged Container Found', 
-          description: 'Logging pod running with --privileged flag, allowing node-level escape.',
-          confidence: Confidence.HIGH, target: 'k8s-cluster.prod.local'
-        });
-      }
-
+      
       if (step >= 96) {
         if (timerRef.current) clearInterval(timerRef.current);
         setSession(s => ({ ...s, status: ScanStatus.COMPLETED, progress: 100 }));
-        simulateEvent('log', { plugin: 'core', message: 'Full Mission Telemetry Aggregated. 12 High/Critical findings identified.', level: 'success' });
+        simulateEvent('log', { plugin: 'core', message: 'Full Mission Telemetry Aggregated. Security artifacts generated.', level: 'success' });
       }
     }, 500);
   };
@@ -280,21 +267,39 @@ const App: React.FC = () => {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-16 border-b border-zinc-800 bg-[#09090b]/80 backdrop-blur-xl flex items-center justify-between px-8 sticky top-0 z-40">
-          <div className="flex items-center gap-4 flex-1">
-            <div className="relative max-w-md w-full group">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 group-focus-within:text-indigo-400 transition-colors" />
-              <input type="text" placeholder="Search target assets..." className="bg-zinc-900/50 border border-zinc-800 rounded-xl pl-10 pr-4 py-2 text-sm w-full focus:border-indigo-500/50 outline-none transition-all" />
+        <header className="h-20 border-b border-zinc-800 bg-[#09090b]/80 backdrop-blur-xl flex items-center justify-between px-8 sticky top-0 z-40">
+          <div className="flex items-center gap-6 flex-1">
+            <div className="relative max-w-xl w-full group">
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                <Target size={18} className="text-indigo-500" />
+                <div className="h-4 w-[1px] bg-zinc-700" />
+              </div>
+              <input 
+                type="text" 
+                value={targetInput}
+                onChange={(e) => setTargetInput(e.target.value)}
+                disabled={session.status === ScanStatus.RUNNING}
+                placeholder="Enter engagement target (IP, Domain, CIDR)..." 
+                className="bg-zinc-950/50 border border-zinc-800 rounded-2xl pl-12 pr-4 py-3 text-sm w-full focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 outline-none transition-all font-bold tracking-tight disabled:opacity-50" 
+              />
+              {session.status === ScanStatus.IDLE && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex gap-1">
+                  <span className="text-[10px] font-black bg-zinc-900 border border-zinc-800 text-zinc-500 px-2 py-1 rounded-lg uppercase tracking-widest cursor-default">Ready</span>
+                </div>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3 bg-zinc-950 border border-zinc-800 px-4 py-2 rounded-xl">
-              <span className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">Scoped Target</span>
-              <span className="text-sm font-bold text-indigo-400 truncate max-w-[200px]">{session.target}</span>
+             <div className="flex items-center gap-3 bg-zinc-950 border border-zinc-800 px-4 py-2.5 rounded-2xl">
+              <span className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">Session ID</span>
+              <span className="text-xs font-bold text-indigo-400 terminal-font">{session.id}</span>
             </div>
-            <button className="p-2 text-zinc-400 hover:text-white relative transition-colors">
+            <button className="p-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-zinc-400 hover:text-white transition-all hover:bg-zinc-800">
+              <Settings size={20} />
+            </button>
+            <button className="p-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-zinc-400 hover:text-white relative transition-all hover:bg-zinc-800">
               <Bell size={20} />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-zinc-950" />
+              <span className="absolute top-2 right-2 w-2 h-2 bg-indigo-500 rounded-full border-2 border-zinc-950" />
             </button>
           </div>
         </header>
@@ -305,9 +310,9 @@ const App: React.FC = () => {
               {/* Stat Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <StatCard label="Critical/High" value={findings.filter(f => f.severity === Severity.CRITICAL || f.severity === Severity.HIGH).length} color="red" icon={<Shield size={24} />} />
-                <StatCard label="Infrastructure Nodes" value={new Set(findings.map(f => f.target)).size + 1} color="orange" icon={<Globe size={24} />} />
+                <StatCard label="Infrastructure Nodes" value={new Set(findings.map(f => f.target)).size + (session.status === ScanStatus.RUNNING || session.status === ScanStatus.COMPLETED ? 1 : 0)} color="orange" icon={<Globe size={24} />} />
                 <StatCard label="Scan Velocity" value={`${Math.floor(session.progress)}%`} color="indigo" icon={<Zap size={24} />} />
-                <StatCard label="Events Streamed" value={logs.length} color="zinc" icon={<Terminal size={24} />} />
+                <StatCard label="Telemetry Events" value={logs.length} color="zinc" icon={<Terminal size={24} />} />
               </div>
 
               {/* Main Visualization Row */}
@@ -354,7 +359,7 @@ const App: React.FC = () => {
                       ) : (
                         <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
                           <Bot size={48} className="mb-4 animate-bounce duration-1000" />
-                          <p className="text-[10px] uppercase tracking-[0.3em] font-black text-zinc-400">Stream finding telemetry to start AI Correlation</p>
+                          <p className="text-[10px] uppercase tracking-[0.3em] font-black text-zinc-400">Stream telemetry to begin AI Correlation</p>
                         </div>
                       )}
                     </div>
@@ -364,13 +369,56 @@ const App: React.FC = () => {
                   <div className="bg-[#09090b] border border-zinc-800 rounded-3xl p-6 shadow-xl">
                     <div className="flex items-center justify-between mb-6 border-b border-zinc-800/50 pb-4">
                       <h3 className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Active Orchestrator</h3>
-                      <button onClick={() => setShowConfig(!showConfig)} className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-500 transition-colors">
+                      <button onClick={() => setShowConfig(!showConfig)} className={`p-2 rounded-lg transition-colors ${showConfig ? 'bg-indigo-600 text-white' : 'hover:bg-zinc-800 text-zinc-500'}`}>
                         <Settings size={14} />
                       </button>
                     </div>
 
                     {showConfig ? (
                       <div className="space-y-4 mb-6 animate-in slide-in-from-top-4 duration-300">
+                        {/* Nmap Profile Selector */}
+                        <div className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800">
+                          <label className="text-[10px] font-black uppercase text-zinc-500 block mb-3">Nmap Scan Profile</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            {(Object.keys(NMAP_PROFILES) as NmapProfile[]).map(profile => (
+                              <button 
+                                key={profile} 
+                                onClick={() => setNmapProfile(profile)}
+                                className={`px-3 py-2 rounded-xl text-[10px] font-bold border transition-all text-left group ${nmapProfile === profile ? 'bg-indigo-600/10 border-indigo-500 text-indigo-400' : 'bg-zinc-900 border-zinc-800 text-zinc-600 hover:border-zinc-700'}`}
+                              >
+                                <div className="flex justify-between items-center mb-1">
+                                  <span>{profile}</span>
+                                  {nmapProfile === profile && <CheckCircle2 size={10} />}
+                                </div>
+                                <div className="text-[8px] opacity-50 font-medium truncate leading-none">{NMAP_PROFILES[profile].flags}</div>
+                              </button>
+                            ))}
+                          </div>
+                          <p className="text-[9px] text-zinc-600 mt-3 font-medium italic">
+                            * {NMAP_PROFILES[nmapProfile].desc}
+                          </p>
+
+                          {/* Custom Port Range Input */}
+                          <div className="mt-4 pt-4 border-t border-zinc-800/50">
+                            <label className="text-[10px] font-black uppercase text-zinc-500 flex items-center gap-2 mb-2">
+                              <Hash size={10} className="text-indigo-500" /> Custom Port Range
+                            </label>
+                            <input 
+                              type="text"
+                              value={portRange}
+                              onChange={(e) => setPortRange(e.target.value)}
+                              disabled={nmapProfile === 'Standard' || nmapProfile === 'Aggressive'}
+                              placeholder="e.g. 80,443,1-65535"
+                              className="bg-zinc-900/50 border border-zinc-800 rounded-xl px-4 py-2 text-xs w-full focus:border-indigo-500/50 outline-none transition-all font-medium disabled:opacity-20 disabled:cursor-not-allowed"
+                            />
+                            {(nmapProfile === 'Standard' || nmapProfile === 'Aggressive') && (
+                              <p className="text-[8px] text-zinc-600 mt-1 uppercase font-bold tracking-tighter">
+                                Ignored in {nmapProfile} mode
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        
                         <div className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800">
                           <label className="text-[10px] font-black uppercase text-zinc-500 block mb-2">Scan Intensity</label>
                           <div className="flex gap-2">
@@ -380,10 +428,6 @@ const App: React.FC = () => {
                               </button>
                             ))}
                           </div>
-                        </div>
-                        <div className="flex items-center justify-between p-4 bg-zinc-950 rounded-2xl border border-zinc-800">
-                          <span className="text-[10px] font-black uppercase text-zinc-500">Enable Cloud Audits</span>
-                          <div className="w-10 h-5 bg-indigo-600 rounded-full relative"><div className="absolute right-1 top-1 w-3 h-3 bg-white rounded-full"></div></div>
                         </div>
                       </div>
                     ) : (
