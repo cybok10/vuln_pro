@@ -28,7 +28,20 @@ import {
   SearchCode,
   Bug,
   Ghost,
-  FileText
+  FileText,
+  Network,
+  Fingerprint,
+  Link,
+  Lock,
+  Eye,
+  Crosshair,
+  ShieldCheck,
+  Cloud,
+  Key,
+  Scan,
+  Server,
+  FlaskConical,
+  Target
 } from 'lucide-react';
 import { 
   Severity, 
@@ -37,26 +50,35 @@ import {
   EventMessage,
   ScanSession,
   Confidence,
-  LogEntry
+  LogEntry,
+  ToolCategory
 } from './types';
 import { SAMPLE_TARGETS, SEVERITY_COLORS } from './constants';
 import LiveTerminal from './components/LiveTerminal';
 import FindingsTable from './components/FindingsTable';
 import DashboardStats from './components/DashboardStats';
+import VulnerabilityDetailModal from './components/VulnerabilityDetailModal';
+import AttackSurfaceMap from './components/AttackSurfaceMap';
 import { analyzeFindings } from './services/geminiService';
 
-const TOOLS = [
-  { name: 'Subfinder', icon: <SearchCode size={16} />, desc: 'Passive discovery' },
-  { name: 'Nuclei', icon: <Activity size={16} />, desc: 'Template-based scanning' },
-  { name: 'Arjun', icon: <Bug size={16} />, desc: 'Parameter discovery' },
-  { name: 'Katana', icon: <Globe size={16} />, desc: 'Web crawling engine' },
-  { name: 'Metasploit', icon: <Zap size={16} />, desc: 'Exploitation framework' },
+const TOOLS: { name: string; icon: React.ReactNode; desc: string; category: ToolCategory }[] = [
+  { name: 'VirusTotal', icon: <Fingerprint size={16} />, desc: 'Threat Intel & Reputation', category: 'recon' },
+  { name: 'Amass', icon: <Globe size={16} />, desc: 'In-depth DNS Mapping', category: 'recon' },
+  { name: 'Masscan', icon: <Scan size={16} />, desc: 'High-Velocity Port Sweep', category: 'network' },
+  { name: 'Nmap-NSE', icon: <Cpu size={16} />, desc: 'Deep Service Fingerprinting', category: 'network' },
+  { name: 'ZAP-API', icon: <Zap size={16} />, desc: 'API Security Testing', category: 'web' },
+  { name: 'Nikto', icon: <Server size={16} />, desc: 'Web Server Misconfig Audit', category: 'web' },
+  { name: 'Sqlmap', icon: <FlaskConical size={16} />, desc: 'DB Exploitation & Injection', category: 'fuzzing' },
+  { name: 'Nuclei', icon: <Activity size={16} />, desc: 'CVE Template Matching', category: 'web' },
+  { name: 'Gitleaks', icon: <Key size={16} />, desc: 'Secret & Credential Discovery', category: 'recon' },
+  { name: 'Kube-Hunter', icon: <Cloud size={16} />, desc: 'K8s Cluster Auditing', category: 'cloud' },
+  { name: 'Checkov', icon: <ShieldCheck size={16} />, desc: 'IaC Security Scanning', category: 'cloud' },
 ];
 
 const App: React.FC = () => {
   const [session, setSession] = useState<ScanSession>({
-    id: 'S-' + Math.random().toString(36).substr(2, 6).toUpperCase(),
-    target: 'enterprise-corp.com',
+    id: 'ENT-' + Math.random().toString(36).substr(2, 6).toUpperCase(),
+    target: 'hq.enterprise-defense.com',
     status: ScanStatus.IDLE,
     progress: 0,
     start_time: '',
@@ -68,22 +90,22 @@ const App: React.FC = () => {
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'findings' | 'reports'>('overview');
+  const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
+  const [showConfig, setShowConfig] = useState(false);
 
-  const wsRef = useRef<any>(null);
   const timerRef = useRef<number | null>(null);
 
-  // Mock WebSocket / EventBus connection
   const simulateEvent = useCallback((type: 'log' | 'finding', data: any) => {
     if (type === 'log') {
-      setLogs(prev => [...prev.slice(-50), { 
+      setLogs(prev => [...prev.slice(-150), { 
         ...data, 
-        id: Date.now(), 
+        id: Math.random().toString(36), 
         timestamp: new Date().toLocaleTimeString() 
       } as LogEntry]);
     } else if (type === 'finding') {
       const newFinding: Finding = {
         ...data,
-        id: 'F-' + Math.random().toString(36).substr(2, 4).toUpperCase(),
+        id: 'FIND-' + Math.random().toString(36).substr(2, 4).toUpperCase(),
         plugin: data.tool,
         scan_id: session.id,
         timestamp: new Date().toISOString()
@@ -94,6 +116,7 @@ const App: React.FC = () => {
   }, [session.id]);
 
   const startScan = () => {
+    setShowConfig(false);
     setSession(s => ({ 
       ...s, 
       status: ScanStatus.RUNNING, 
@@ -108,88 +131,106 @@ const App: React.FC = () => {
     let step = 0;
     timerRef.current = window.setInterval(() => {
       step++;
-      setSession(s => ({ ...s, progress: Math.min(step * 1.6, 100) }));
+      const currentProgress = Math.min(step * 1.05, 100);
+      setSession(s => ({ ...s, progress: currentProgress }));
 
-      // Simulated Pipeline Events
-      if (step === 2) simulateEvent('log', { plugin: 'core', message: 'Orchestrator initialized. Loading plugins...', level: 'info' });
-      if (step === 5) simulateEvent('log', { plugin: 'recon', message: 'Subfinder started: Enumerating subdomains', level: 'info' });
-      if (step === 10) simulateEvent('finding', { 
-        tool: 'nuclei', 
-        category: 'web', 
-        severity: Severity.HIGH, 
-        title: 'CVE-2023-22515: Broken Access Control', 
-        description: 'Exposed Confluence instance found on dev.enterprise-corp.com',
-        confidence: Confidence.HIGH,
-        target: 'dev.enterprise-corp.com'
-      });
-      if (step === 25) simulateEvent('finding', { 
-        tool: 'arjun', 
-        category: 'web', 
-        severity: Severity.CRITICAL, 
-        title: 'Blind SQL Injection', 
-        description: 'Time-based injection on /api/v1/user/search?id=',
-        confidence: Confidence.MEDIUM,
-        target: 'api.enterprise-corp.com'
-      });
-      if (step >= 60) {
+      // PHASE 1: INTELLIGENCE & RECON (0-25%)
+      if (step === 2) simulateEvent('log', { plugin: 'core', message: 'Mission Context Initialized. Target Scope: hq.enterprise-defense.com', level: 'info' });
+      if (step === 5) simulateEvent('log', { plugin: 'recon', message: 'Subfinder: Active subdomain enumeration via passive datasets...', level: 'info' });
+      if (step === 8) simulateEvent('log', { plugin: 'recon', message: 'Amass: Correlating DNS records with WHOIS data...', level: 'info' });
+      if (step === 10) {
+        simulateEvent('finding', { 
+          tool: 'Amass', category: 'recon', severity: Severity.INFO, 
+          title: 'Unlisted Staging Subdomain Found', 
+          description: 'Discovered dev-staging.enterprise-defense.com via cert transparency logs.',
+          confidence: Confidence.HIGH, target: 'dev-staging.enterprise-defense.com'
+        });
+      }
+      if (step === 15) simulateEvent('log', { plugin: 'recon', message: 'Gitleaks: Checking GitHub/GitLab for leaked .env files...', level: 'info' });
+      if (step === 20) {
+        simulateEvent('finding', { 
+          tool: 'Gitleaks', category: 'recon', severity: Severity.CRITICAL, 
+          title: 'Hardcoded SSH Private Key', 
+          description: 'A build script on public-facing CDN leaked an RSA private key for the dev jumpbox.',
+          confidence: Confidence.HIGH, target: 'cdn.enterprise-defense.com'
+        });
+      }
+
+      // PHASE 2: ATTACK SURFACE ENUMERATION (25-50%)
+      if (step === 25) simulateEvent('log', { plugin: 'network', message: 'Masscan: SYN Scanning 65535 ports at 50,000 pps...', level: 'info' });
+      if (step === 30) simulateEvent('log', { plugin: 'network', message: 'Nmap: Detected Open Ports: 22, 80, 443, 3306, 5432, 8080.', level: 'success' });
+      if (step === 35) simulateEvent('log', { plugin: 'network', message: 'Nmap-NSE: Executing default vulnerability scripts (http-enum, ssl-cert)...', level: 'info' });
+      if (step === 38) {
+        simulateEvent('finding', { 
+          tool: 'Nmap-NSE', category: 'network', severity: Severity.HIGH, 
+          title: 'Unencrypted MySQL Protocol', 
+          description: 'Port 3306 is open to external traffic and accepting connections without TLS forcing.',
+          confidence: Confidence.HIGH, target: 'db-master.internal.lan'
+        });
+      }
+
+      // PHASE 3: ACTIVE EXPLOITATION RESEARCH (50-75%)
+      if (step === 50) simulateEvent('log', { plugin: 'web', message: 'Nikto: Identified legacy Telerik UI library on /admin endpoint.', level: 'warning' });
+      if (step === 55) simulateEvent('log', { plugin: 'fuzzing', message: 'Sqlmap: Testing blind injection on search parameters...', level: 'info' });
+      if (step === 60) {
+        simulateEvent('finding', { 
+          tool: 'Sqlmap', category: 'fuzzing', severity: Severity.CRITICAL, 
+          title: 'Second-Order SQL Injection', 
+          description: 'Vulnerability in user profile update allows arbitrary DB queries via username field.',
+          confidence: Confidence.HIGH, target: 'auth.enterprise-defense.com'
+        });
+      }
+      if (step === 65) simulateEvent('log', { plugin: 'web', message: 'Nuclei: Running 2024 CVE Template Library...', level: 'info' });
+      if (step === 70) {
+        simulateEvent('finding', { 
+          tool: 'Nuclei', category: 'web', severity: Severity.HIGH, 
+          title: 'CVE-2024-21887: Ivanti Connect Secure RCE', 
+          description: 'Detected vulnerable VPN appliance endpoint allowing command injection.',
+          confidence: Confidence.MEDIUM, target: 'vpn.enterprise-defense.com'
+        });
+      }
+
+      // PHASE 4: CLOUD & POST-EXPLOITATION (75-100%)
+      if (step === 80) simulateEvent('log', { plugin: 'cloud', message: 'Checkov: Analyzing Terraform state files found on exposed S3 bucket.', level: 'info' });
+      if (step === 85) simulateEvent('log', { plugin: 'cloud', message: 'Kube-Hunter: Mapping Kubernetes cluster internal networking...', level: 'info' });
+      if (step === 90) {
+        simulateEvent('finding', { 
+          tool: 'Kube-Hunter', category: 'cloud', severity: Severity.HIGH, 
+          title: 'Privileged Container Found', 
+          description: 'Logging pod running with --privileged flag, allowing node-level escape.',
+          confidence: Confidence.HIGH, target: 'k8s-cluster.prod.local'
+        });
+      }
+
+      if (step >= 96) {
         if (timerRef.current) clearInterval(timerRef.current);
         setSession(s => ({ ...s, status: ScanStatus.COMPLETED, progress: 100 }));
-        simulateEvent('log', { plugin: 'core', message: 'Scan complete. All results persisted to SQLite.', level: 'success' });
+        simulateEvent('log', { plugin: 'core', message: 'Full Mission Telemetry Aggregated. 12 High/Critical findings identified.', level: 'success' });
       }
-    }, 1000);
+    }, 500);
   };
 
   const stopScan = () => {
     if (timerRef.current) clearInterval(timerRef.current);
     setSession(s => ({ ...s, status: ScanStatus.IDLE, progress: 0 }));
+    simulateEvent('log', { plugin: 'core', message: 'Emergency Brake Protocol Active. Data persisted to SQLite.', level: 'warning' });
   };
 
   const getToolStatus = (idx: number) => {
     const range = 100 / TOOLS.length;
     const start = idx * range;
     const end = (idx + 1) * range;
-    
     if (session.status === ScanStatus.IDLE) return 'QUEUED';
-    if (session.status === ScanStatus.FAILED) return 'FAILED';
     if (session.progress >= end) return 'COMPLETED';
     if (session.progress > start && session.progress < end) return 'RUNNING';
     return 'QUEUED';
   };
 
-  const getToolProgress = (idx: number) => {
-    const range = 100 / TOOLS.length;
-    const start = idx * range;
-    if (session.progress <= start) return 0;
-    if (session.progress >= start + range) return 100;
-    return ((session.progress - start) / range) * 100;
-  };
-
-  const getStatusStyles = (statusText: string) => {
-    switch (statusText) {
-      case 'RUNNING':
-        return {
-          bg: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30',
-          icon: <RefreshCw size={10} className="animate-spin" />,
-          dot: 'bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.6)]'
-        };
-      case 'COMPLETED':
-        return {
-          bg: 'bg-green-500/10 text-green-500 border-green-500/30',
-          icon: <CheckCircle2 size={10} />,
-          dot: 'bg-green-500'
-        };
-      case 'FAILED':
-        return {
-          bg: 'bg-red-500/10 text-red-500 border-red-500/30',
-          icon: <XCircle size={10} />,
-          dot: 'bg-red-500'
-        };
-      default:
-        return {
-          bg: 'bg-zinc-900 text-zinc-500 border-zinc-800',
-          icon: <Clock size={10} />,
-          dot: 'bg-zinc-800'
-        };
+  const getStatusStyles = (status: string) => {
+    switch (status) {
+      case 'RUNNING': return { bg: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30', icon: <RefreshCw size={10} className="animate-spin" /> };
+      case 'COMPLETED': return { bg: 'bg-green-500/10 text-green-500 border-green-500/30', icon: <CheckCircle2 size={10} /> };
+      default: return { bg: 'bg-zinc-900 text-zinc-600 border-zinc-800', icon: <Clock size={10} /> };
     }
   };
 
@@ -202,323 +243,231 @@ const App: React.FC = () => {
             <div className="bg-indigo-600 p-2 rounded-xl shadow-lg shadow-indigo-500/20">
               <Shield size={20} className="text-white" />
             </div>
-            <span className="font-black text-lg tracking-tight uppercase">Pentest-Pro</span>
+            <span className="font-black text-lg tracking-tight uppercase tracking-tighter">Pentest-Pro</span>
           </div>
         </div>
-
         <nav className="flex-1 px-4 py-4 space-y-1">
-          <button 
-            onClick={() => setActiveTab('overview')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'overview' ? 'bg-indigo-600/10 text-indigo-400 font-bold border border-indigo-500/20' : 'text-zinc-500 hover:text-white hover:bg-zinc-800/50'}`}
-          >
-            <LayoutDashboard size={18} /> Overview
+          <button onClick={() => setActiveTab('overview')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'overview' ? 'bg-indigo-600/10 text-indigo-400 font-bold border border-indigo-500/20 shadow-inner' : 'text-zinc-500 hover:text-white hover:bg-zinc-800/50'}`}>
+            <LayoutDashboard size={18} /> Dashboard
           </button>
-          <button 
-            onClick={() => setActiveTab('findings')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'findings' ? 'bg-indigo-600/10 text-indigo-400 font-bold border border-indigo-500/20' : 'text-zinc-500 hover:text-white hover:bg-zinc-800/50'}`}
-          >
-            <AlertCircle size={18} /> Findings
+          <button onClick={() => setActiveTab('findings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'findings' ? 'bg-indigo-600/10 text-indigo-400 font-bold border border-indigo-500/20 shadow-inner' : 'text-zinc-500 hover:text-white hover:bg-zinc-800/50'}`}>
+            <AlertCircle size={18} /> Vulnerabilities
           </button>
-          <button 
-            onClick={() => setActiveTab('reports')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'reports' ? 'bg-indigo-600/10 text-indigo-400 font-bold border border-indigo-500/20' : 'text-zinc-500 hover:text-white hover:bg-zinc-800/50'}`}
-          >
-            <Download size={18} /> Reports
+          <button onClick={() => setActiveTab('reports')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'reports' ? 'bg-indigo-600/10 text-indigo-400 font-bold border border-indigo-500/20 shadow-inner' : 'text-zinc-500 hover:text-white hover:bg-zinc-800/50'}`}>
+            <Download size={18} /> PDF Reports
           </button>
-          <div className="pt-6 pb-2 px-4 text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Inventory</div>
-          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800/50">
-            <Globe size={18} /> Attack Surface
+          <div className="pt-6 pb-2 px-4 text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em]">Operations</div>
+          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800/50 transition-colors">
+            <Target size={18} /> Scope Manager
           </button>
-          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800/50">
-            <Database size={18} /> Database
+          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800/50 transition-colors">
+            <Settings size={18} /> Engine Config
           </button>
         </nav>
-
         <div className="p-4 border-t border-zinc-800">
-          <div className="bg-zinc-900/50 p-4 rounded-2xl border border-zinc-800">
+          <div className="bg-zinc-950/50 p-4 rounded-2xl border border-zinc-800">
             <div className="flex items-center gap-3 mb-3">
-              <div className="h-2 w-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
-              <span className="text-xs font-bold text-zinc-400">Node Cluster: US-EAST</span>
+              <div className="h-2 w-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
+              <span className="text-xs font-bold text-zinc-400">Node US-W-1: ACTIVE</span>
             </div>
-            <div className="flex items-center justify-between text-[10px] text-zinc-600 uppercase font-bold">
-              <span>CPU: 12%</span>
-              <span>MEM: 1.4GB</span>
+            <div className="flex items-center justify-between text-[10px] text-zinc-600 uppercase font-black">
+              <span>LATENCY: 8ms</span>
+              <span>IO: 450MB/s</span>
             </div>
           </div>
         </div>
       </aside>
 
-      {/* Main Content */}
+      {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
         <header className="h-16 border-b border-zinc-800 bg-[#09090b]/80 backdrop-blur-xl flex items-center justify-between px-8 sticky top-0 z-40">
           <div className="flex items-center gap-4 flex-1">
-            <div className="relative max-w-md w-full">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-              <input 
-                type="text" 
-                placeholder="Search scans, assets, or findings..." 
-                className="bg-zinc-900 border border-zinc-800 rounded-xl pl-10 pr-4 py-2 text-sm w-full outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/50 transition-all"
-              />
+            <div className="relative max-w-md w-full group">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 group-focus-within:text-indigo-400 transition-colors" />
+              <input type="text" placeholder="Search target assets..." className="bg-zinc-900/50 border border-zinc-800 rounded-xl pl-10 pr-4 py-2 text-sm w-full focus:border-indigo-500/50 outline-none transition-all" />
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <button className="p-2 text-zinc-400 hover:text-white transition-colors relative">
-              <Bell size={20} />
-              <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full" />
-            </button>
-            <div className="h-8 w-px bg-zinc-800 mx-2" />
-            <div className="flex items-center gap-3">
-              <div className="text-right">
-                <div className="text-sm font-bold">Admin User</div>
-                <div className="text-[10px] text-zinc-500 uppercase font-black">Enterprise Role</div>
-              </div>
-              <div className="h-10 w-10 rounded-full bg-indigo-600 flex items-center justify-center font-bold text-sm shadow-lg shadow-indigo-500/20">
-                AD
-              </div>
+            <div className="flex items-center gap-3 bg-zinc-950 border border-zinc-800 px-4 py-2 rounded-xl">
+              <span className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">Scoped Target</span>
+              <span className="text-sm font-bold text-indigo-400 truncate max-w-[200px]">{session.target}</span>
             </div>
+            <button className="p-2 text-zinc-400 hover:text-white relative transition-colors">
+              <Bell size={20} />
+              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-zinc-950" />
+            </button>
           </div>
         </header>
 
-        {/* View Content */}
-        <main className="flex-1 overflow-y-auto p-8 space-y-8">
-          {/* Dashboard Header */}
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-            <div>
-              <div className="flex items-center gap-2 text-zinc-500 text-sm font-medium mb-1">
-                <span>Pentest-Pro</span>
-                <ChevronRight size={14} />
-                <span>Command Center</span>
-              </div>
-              <h1 className="text-3xl font-black tracking-tight flex items-center gap-4">
-                Active Operations
-                {session.status === ScanStatus.RUNNING && (
-                  <span className="bg-green-500/10 text-green-500 text-xs px-3 py-1 rounded-full border border-green-500/20 animate-pulse">
-                    Live Session
-                  </span>
-                )}
-              </h1>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden p-1">
-                <input 
-                  type="text" 
-                  value={session.target}
-                  onChange={(e) => setSession({ ...session, target: e.target.value })}
-                  disabled={session.status === ScanStatus.RUNNING}
-                  className="bg-transparent px-4 py-2 outline-none text-sm font-bold min-w-[200px]"
-                />
-                <button 
-                  onClick={session.status === ScanStatus.RUNNING ? stopScan : startScan}
-                  className={`flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-black transition-all ${
-                    session.status === ScanStatus.RUNNING 
-                    ? 'bg-red-600 hover:bg-red-500 shadow-lg shadow-red-500/20' 
-                    : 'bg-indigo-600 hover:bg-indigo-500 shadow-lg shadow-indigo-500/20'
-                  }`}
-                >
-                  {session.status === ScanStatus.RUNNING ? <><Square size={16} fill="currentColor" /> STOP</> : <><Play size={16} fill="currentColor" /> LAUNCH</>}
-                </button>
-              </div>
-            </div>
-          </div>
-
+        <main className="flex-1 overflow-y-auto p-8 space-y-8 scroll-smooth">
           {activeTab === 'overview' && (
             <>
-              {/* Performance Cards */}
+              {/* Stat Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard 
-                  label="Critical Risks" 
-                  value={findings.filter(f => f.severity === Severity.CRITICAL).length} 
-                  color="red" 
-                  icon={<Shield size={24} />} 
-                />
-                <StatCard 
-                  label="High Risks" 
-                  value={findings.filter(f => f.severity === Severity.HIGH).length} 
-                  color="orange" 
-                  icon={<Activity size={24} />} 
-                />
-                <StatCard 
-                  label="Scan Progress" 
-                  value={`${Math.floor(session.progress)}%`} 
-                  color="indigo" 
-                  icon={<Zap size={24} />} 
-                />
-                <StatCard 
-                  label="Total Assets" 
-                  value={SAMPLE_TARGETS.length} 
-                  color="zinc" 
-                  icon={<Globe size={24} />} 
-                />
+                <StatCard label="Critical/High" value={findings.filter(f => f.severity === Severity.CRITICAL || f.severity === Severity.HIGH).length} color="red" icon={<Shield size={24} />} />
+                <StatCard label="Infrastructure Nodes" value={new Set(findings.map(f => f.target)).size + 1} color="orange" icon={<Globe size={24} />} />
+                <StatCard label="Scan Velocity" value={`${Math.floor(session.progress)}%`} color="indigo" icon={<Zap size={24} />} />
+                <StatCard label="Events Streamed" value={logs.length} color="zinc" icon={<Terminal size={24} />} />
               </div>
 
-              {/* Real-time Grid */}
+              {/* Main Visualization Row */}
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
                 <div className="xl:col-span-2 space-y-8">
-                  <LiveTerminal logs={logs} />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <AttackSurfaceMap findings={findings} target={session.target} />
+                    <LiveTerminal logs={logs} />
+                  </div>
                   <DashboardStats findings={findings} />
                 </div>
                 <div className="space-y-8">
-                  {/* AI Remediation Panel */}
-                  <div className="bg-[#09090b] border border-zinc-800 rounded-3xl overflow-hidden flex flex-col min-h-[500px] shadow-2xl">
-                    <div className="p-6 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/30">
-                      <div className="flex items-center gap-3">
-                        <div className="bg-purple-600/20 text-purple-400 p-2 rounded-xl">
-                          <Bot size={20} />
+                  {/* Gemini Intelligence Hub */}
+                  <div className="bg-[#09090b] border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col h-[500px]">
+                    <div className="p-6 border-b border-zinc-800 bg-zinc-900/30 flex items-center justify-between">
+                      <div className="flex gap-3">
+                        <div className="p-2 bg-purple-500/20 rounded-xl">
+                          <Bot className="text-purple-400" size={20} />
                         </div>
                         <div>
-                          <h3 className="font-bold text-sm">Gemini Insight Core</h3>
-                          <p className="text-[10px] text-zinc-500 uppercase tracking-tighter">Automated Analysis</p>
+                          <h3 className="font-bold text-sm">Gemini AI Engine</h3>
+                          <p className="text-[10px] text-zinc-500 uppercase tracking-tighter">Automated Exploit Chaining</p>
                         </div>
                       </div>
                       <button 
                         onClick={async () => {
                           setIsAnalyzing(true);
-                          const result = await analyzeFindings(findings);
-                          setAiAnalysis(result);
+                          const res = await analyzeFindings(findings);
+                          setAiAnalysis(res);
                           setIsAnalyzing(false);
-                        }}
-                        disabled={isAnalyzing || findings.length === 0}
-                        className="bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white text-[10px] font-black px-4 py-2 rounded-xl transition-all uppercase tracking-widest border border-zinc-700"
+                        }} 
+                        disabled={isAnalyzing || findings.length === 0} 
+                        className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-[10px] font-black px-4 py-2 rounded-xl transition-all uppercase tracking-widest shadow-lg shadow-indigo-500/20 flex items-center gap-2"
                       >
+                        {isAnalyzing ? <RefreshCw size={12} className="animate-spin" /> : <Zap size={12} />}
                         Analyze
                       </button>
                     </div>
-                    <div className="flex-1 p-6 overflow-y-auto">
+                    <div className="flex-1 p-6 overflow-y-auto scrollbar-thin">
                       {aiAnalysis ? (
-                        <div className="text-zinc-400 text-xs terminal-font leading-relaxed whitespace-pre-wrap">
+                        <div className="text-zinc-300 text-xs terminal-font leading-relaxed whitespace-pre-wrap animate-in fade-in slide-in-from-bottom-2">
                           {aiAnalysis}
                         </div>
                       ) : (
-                        <div className="h-full flex flex-col items-center justify-center text-center p-8">
-                          <Bot size={48} className="text-zinc-800 mb-4" />
-                          <h4 className="text-zinc-500 font-bold mb-2">Awaiting Intelligence Batch</h4>
-                          <p className="text-zinc-600 text-[11px] max-w-[200px]">
-                            Once findings are populated, Gemini can perform a prioritized remediation strategy analysis.
-                          </p>
+                        <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
+                          <Bot size={48} className="mb-4 animate-bounce duration-1000" />
+                          <p className="text-[10px] uppercase tracking-[0.3em] font-black text-zinc-400">Stream finding telemetry to start AI Correlation</p>
                         </div>
                       )}
                     </div>
-                    {isAnalyzing && (
-                      <div className="p-4 bg-indigo-600/10 border-t border-indigo-500/20 flex items-center gap-3">
-                        <RefreshCw size={14} className="text-indigo-400 animate-spin" />
-                        <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Generating Strategy...</span>
-                      </div>
-                    )}
                   </div>
 
-                  {/* Plugin Pipeline Monitor */}
+                  {/* Execution Control & Monitor */}
                   <div className="bg-[#09090b] border border-zinc-800 rounded-3xl p-6 shadow-xl">
-                    <div className="flex items-center justify-between mb-6">
-                      <h3 className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em]">Orchestration Pipeline</h3>
-                      <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-zinc-950 border border-zinc-800 text-[9px] text-zinc-500 font-bold uppercase">
-                        <Layers size={10} />
-                        {TOOLS.length} Units
-                      </div>
+                    <div className="flex items-center justify-between mb-6 border-b border-zinc-800/50 pb-4">
+                      <h3 className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Active Orchestrator</h3>
+                      <button onClick={() => setShowConfig(!showConfig)} className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-500 transition-colors">
+                        <Settings size={14} />
+                      </button>
                     </div>
-                    
-                    <div className="space-y-3">
-                      {TOOLS.map((tool, idx) => {
-                        const statusText = getToolStatus(idx);
-                        const styles = getStatusStyles(statusText);
-                        const toolProgress = getToolProgress(idx);
-                        
-                        return (
-                          <div key={tool.name} className="relative group p-4 rounded-2xl bg-zinc-950 border border-zinc-800/50 hover:border-zinc-700 transition-all overflow-hidden">
-                            {/* Individual Tool Progress Bar Background */}
-                            {statusText === 'RUNNING' && (
-                              <div 
-                                className="absolute bottom-0 left-0 h-0.5 bg-indigo-500/40 transition-all duration-300" 
-                                style={{ width: `${toolProgress}%` }} 
-                              />
-                            )}
-                            
-                            <div className="flex items-start justify-between relative z-10 mb-2">
-                              <div className="flex gap-3">
-                                <div className={`mt-1 p-2 rounded-lg ${statusText === 'RUNNING' ? 'bg-indigo-600/20 text-indigo-400' : 'bg-zinc-900 text-zinc-600'}`}>
-                                  {tool.icon}
-                                </div>
-                                <div>
-                                  <div className="flex items-center gap-2">
-                                    <span className={`text-sm font-bold transition-colors ${statusText === 'RUNNING' ? 'text-white' : 'text-zinc-400'}`}>
-                                      {tool.name}
-                                    </span>
+
+                    {showConfig ? (
+                      <div className="space-y-4 mb-6 animate-in slide-in-from-top-4 duration-300">
+                        <div className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800">
+                          <label className="text-[10px] font-black uppercase text-zinc-500 block mb-2">Scan Intensity</label>
+                          <div className="flex gap-2">
+                            {['Stealth', 'Balanced', 'Aggressive'].map(opt => (
+                              <button key={opt} className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${opt === 'Balanced' ? 'bg-indigo-500/10 border-indigo-500/40 text-indigo-400' : 'bg-zinc-900 border-zinc-800 text-zinc-600 hover:border-zinc-700'}`}>
+                                {opt}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between p-4 bg-zinc-950 rounded-2xl border border-zinc-800">
+                          <span className="text-[10px] font-black uppercase text-zinc-500">Enable Cloud Audits</span>
+                          <div className="w-10 h-5 bg-indigo-600 rounded-full relative"><div className="absolute right-1 top-1 w-3 h-3 bg-white rounded-full"></div></div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 h-[250px] overflow-y-auto scrollbar-thin pr-2 mb-6">
+                        {TOOLS.map((tool, idx) => {
+                          const status = getToolStatus(idx);
+                          const styles = getStatusStyles(status);
+                          return (
+                            <div key={tool.name} className={`p-4 rounded-2xl border transition-all duration-300 ${status === 'RUNNING' ? 'bg-indigo-500/5 border-indigo-500/30 shadow-[0_0_20px_rgba(99,102,241,0.05)] scale-[1.02]' : 'bg-zinc-950 border-zinc-800/50 opacity-60'}`}>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className={`p-2 rounded-xl ${status === 'RUNNING' ? 'bg-indigo-500/20 text-indigo-400' : 'bg-zinc-900 text-zinc-600'}`}>{tool.icon}</div>
+                                  <div>
+                                    <div className={`text-sm font-bold ${status === 'RUNNING' ? 'text-white' : 'text-zinc-300'}`}>{tool.name}</div>
+                                    <div className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">{tool.category}</div>
                                   </div>
-                                  <div className="text-[10px] text-zinc-600 font-medium">
-                                    {tool.desc}
-                                  </div>
                                 </div>
-                              </div>
-                              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[9px] font-black tracking-widest transition-all ${styles.bg}`}>
-                                {styles.icon}
-                                {statusText}
+                                <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-[8px] font-black tracking-widest transition-all ${styles.bg}`}>
+                                  {styles.icon} {status}
+                                </div>
                               </div>
                             </div>
-
-                            {/* Tool Detail Info when active */}
-                            {statusText === 'RUNNING' && (
-                              <div className="mt-3 flex items-center justify-between text-[9px] font-bold text-indigo-400/60 uppercase tracking-tighter">
-                                <span className="animate-pulse">Processing metadata...</span>
-                                <span>{Math.floor(toolProgress)}%</span>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    
+                    <button 
+                      onClick={session.status === ScanStatus.RUNNING ? stopScan : startScan} 
+                      className={`w-full py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg transition-all active:scale-95 flex items-center justify-center gap-3 ${session.status === ScanStatus.RUNNING ? 'bg-red-600/10 text-red-500 border border-red-500/20 hover:bg-red-600/20 shadow-red-500/5' : 'bg-indigo-600 text-white shadow-indigo-500/20 hover:bg-indigo-500'}`}
+                    >
+                      {session.status === ScanStatus.RUNNING ? <><Square size={14} /> HALT MISSION</> : <><Play size={14} /> COMMENCE ENGAGEMENT</>}
+                    </button>
                   </div>
                 </div>
               </div>
 
-              <FindingsTable findings={findings} />
+              <FindingsTable findings={findings} onSelectFinding={setSelectedFinding} />
             </>
           )}
 
-          {activeTab === 'findings' && <FindingsTable findings={findings} />}
+          {activeTab === 'findings' && <FindingsTable findings={findings} onSelectFinding={setSelectedFinding} />}
           
           {activeTab === 'reports' && (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-12 text-center flex flex-col items-center justify-center min-h-[400px]">
-              <Download size={48} className="text-zinc-800 mb-6" />
-              <h2 className="text-2xl font-bold mb-2">Ready to Export Results?</h2>
-              <p className="text-zinc-500 mb-8 max-w-md">
-                Generate a professional PDF report containing the executive summary, tool-wise breakdown, and technical findings suitable for board-level review.
-              </p>
-              <button 
-                className="bg-indigo-600 hover:bg-indigo-500 text-white px-10 py-4 rounded-2xl font-black shadow-xl shadow-indigo-500/20 flex items-center gap-3 transition-all"
-                onClick={() => alert('Generating PDF Report...')}
-              >
-                <Download size={20} /> Download Enterprise PDF
-              </button>
-            </div>
+             <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-16 text-center animate-in zoom-in-95 duration-300 shadow-2xl">
+               <div className="w-20 h-20 bg-zinc-900 rounded-3xl flex items-center justify-center mx-auto mb-8 border border-zinc-800 shadow-inner">
+                <FileText size={40} className="text-zinc-500" />
+               </div>
+               <h2 className="text-3xl font-black mb-4 tracking-tight">Enterprise Artifact Package</h2>
+               <p className="text-zinc-500 max-w-md mx-auto mb-10 text-sm leading-relaxed">
+                 Generate an executive-ready forensic dossier including detailed attack chain maps, raw technical evidence, and prioritized remediation playbooks.
+               </p>
+               <button className="bg-white text-black px-12 py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] hover:bg-zinc-200 transition-all shadow-xl shadow-white/5 active:scale-95">
+                 Export Dossier
+               </button>
+             </div>
           )}
         </main>
       </div>
+
+      {selectedFinding && (
+        <VulnerabilityDetailModal 
+          finding={selectedFinding} 
+          onClose={() => setSelectedFinding(null)} 
+        />
+      )}
     </div>
   );
 };
 
 const StatCard = ({ label, value, color, icon }: any) => {
-  const colors: any = {
-    red: 'bg-red-500/10 text-red-500 border-red-500/20',
-    orange: 'bg-orange-500/10 text-orange-500 border-orange-500/20',
-    indigo: 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20',
-    zinc: 'bg-zinc-800/30 text-zinc-400 border-zinc-800',
+  const themes: any = {
+    red: 'bg-red-500/5 text-red-500 border-red-500/20 shadow-red-500/5',
+    orange: 'bg-orange-500/5 text-orange-500 border-orange-500/20 shadow-orange-500/5',
+    indigo: 'bg-indigo-500/5 text-indigo-400 border-indigo-500/20 shadow-indigo-500/5',
+    zinc: 'bg-zinc-800/10 text-zinc-500 border-zinc-800 shadow-none',
   };
-
   return (
-    <div className={`p-6 rounded-3xl border transition-all hover:scale-[1.02] cursor-default bg-[#09090b] ${colors[color]}`}>
-      <div className="flex items-center justify-between mb-4">
-        <div className="p-3 rounded-2xl bg-zinc-950/50">
-          {icon}
-        </div>
-        <div className="text-3xl font-black tracking-tighter">
-          {value}
-        </div>
+    <div className={`p-6 rounded-3xl border shadow-xl flex flex-col transition-all hover:translate-y-[-4px] group ${themes[color]}`}>
+      <div className="flex justify-between items-start mb-6">
+        <div className="p-3 bg-zinc-950 rounded-2xl border border-zinc-800/50 group-hover:border-zinc-700 transition-colors">{icon}</div>
+        <div className="text-5xl font-black tracking-tighter">{value}</div>
       </div>
-      <div className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60">
-        {label}
-      </div>
+      <div className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60">{label}</div>
     </div>
   );
 };

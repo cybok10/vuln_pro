@@ -22,6 +22,8 @@ export enum ScanStatus {
   FAILED = 'failed'
 }
 
+export type ToolCategory = 'recon' | 'web' | 'network' | 'cloud' | 'fuzzing';
+
 /**
  * Log entry for the live terminal
  */
@@ -37,14 +39,12 @@ export interface LogEntry {
  * Mandatory Result Schema for all plugins
  */
 export interface Finding {
-  // Fix: Added unique identifier for the finding to resolve FindingsTable error
   id: string;
   scan_id: string;
   target: string;
   tool: string;
-  // Fix: Added plugin property to match usage in FindingsTable
   plugin: string;
-  category: 'recon' | 'web' | 'network' | 'fuzzing';
+  category: ToolCategory;
   type: 'vulnerability' | 'informational' | 'misconfiguration';
   severity: Severity;
   title: string;
